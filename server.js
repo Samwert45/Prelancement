@@ -3,16 +3,15 @@ const { Client } = require('pg');
 const app = express();
 
 app.use(express.json());
-app.use(express.static('.')); // ← CETTE LIGNE ÉTAIT MANQUANTE !
+app.use(express.static('.'));
 
-// Route email avec debug complet
 app.post('/webhook.php', async (req, res) => {
     console.log('=== DÉBUT WEBHOOK ===');
     console.log('Body:', req.body);
-    console.log('DB_PASSWORD défini:', !!process.env.DB_PASSWORD);
+    console.log('DATABASE_URL défini:', !!process.env.DATABASE_URL);
     
     const client = new Client({
-        connectionString: `postgresql://gitivity_user:${process.env.DB_PASSWORD}@dpg-d1t8690d13ps7396dnj0-a.oregon-postgres.render.com:5432/gitivity`,
+        connectionString: process.env.DATABASE_URL,
         ssl: { rejectUnauthorized: false }
     });
     
@@ -23,7 +22,7 @@ app.post('/webhook.php', async (req, res) => {
         
         console.log('Tentative d\'insertion...');
         const result = await client.query(
-            'INSERT INTO users (email, created_at, source) VALUES ($1, $2, $3) RETURNING id', 
+            'INSERT INTO users (email, created_at, source) VALUES ($1, $2, $3) RETURNING id',
             [req.body.email, new Date().toISOString(), 'gitanalyse']
         );
         console.log('✅ Email inséré, ID:', result.rows[0].id);
@@ -36,9 +35,7 @@ app.post('/webhook.php', async (req, res) => {
     } catch (error) {
         console.error('❌ ERREUR:', error.message);
         console.error('❌ Code:', error.code);
-        console.error('❌ Stack:', error.stack);
         
-        // Toujours fermer la connexion
         try { await client.end(); } catch {}
         
         res.status(500).json({ error: error.message });
@@ -46,14 +43,14 @@ app.post('/webhook.php', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-    res.json({ 
+    res.json({
         status: 'OK',
-        db_password_set: !!process.env.DB_PASSWORD,
+        database_url_set: !!process.env.DATABASE_URL,
         timestamp: new Date().toISOString()
     });
 });
 
 app.listen(process.env.PORT || 3000, () => {
     console.log('🚀 Serveur démarré sur port', process.env.PORT || 3000);
-    console.log('🔑 DB_PASSWORD défini:', !!process.env.DB_PASSWORD);
+    console.log('🔑 DATABASE_URL défini:', !!process.env.DATABASE_URL);
 });
