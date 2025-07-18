@@ -8,67 +8,123 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('.'));
 
-// Pool de connexions PostgreSQL pour Render
-const pool = new Pool({
-    connectionString: `postgresql://gitivity_user:${process.env.DB_PASSWORD}@dpg-d1t8690d13ps7396dnj0-a.oregon-postgres.render.com:5432/gitivity`,
+// Configuration PostgreSQL pour Render avec retry
+const dbConfig = {
+    user: 'gitivity_user',
+    password: process.env.DB_PASSWORD,
+    host: 'dpg-d1t8690d13ps7396dnj0-a.oregon-postgres.render.com',
+    port: 5432,
+    database: 'gitivity',
     ssl: { rejectUnauthorized: false },
-    max: 10, // max 10 connexions
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
+    max: 5, // Réduire le nombre de connexions
+    idleTimeoutMillis: 10000, // 10 secondes
+    connectionTimeoutMillis: 3000, // 3 secondes
+    acquireTimeoutMillis: 3000,
+    statement_timeout: 5000, // timeout des requêtes
+    query_timeout: 5000,
+};
+
+console.log('🔧 Configuration DB:', {
+    user: dbConfig.user,
+    host: dbConfig.host,
+    port: dbConfig.port,
+    database: dbConfig.database,
+    password_set: !!process.env.DB_PASSWORD
 });
 
-// Route webhook avec debug complet
-app.post('/webhookphp', async (req, res) => {
+const pool = new Pool(dbConfig);
+
+// Gestion des erreurs du pool
+pool.on('error', (err) => {
+    console.error('💥 Erreur pool PostgreSQL:', err);
+});
+
+pool.on('connect', () => {
+    console.log('✅ Nouvelle connexion PostgreSQL');
+});
+
+pool.on('remove', () => {
+    console.log('🔌 Connexion PostgreSQL fermée');
+});
+
+// Route webhook avec retry et gestion d'erreurs
+app.post('/webhook.php', async (req, res) => {
     console.log('🚀 === DÉBUT WEBHOOK ===');
     console.log('📧 Body reçu:', JSON.stringify(req.body, null, 2));
-    console.log('🔗 Headers:', req.headers);
     
-    try {
-        const { email, date, source } = req.body;
-        console.log('📝 Variables extraites:', { email, date, source });
-        
-        if (!email) {
-            console.log('❌ Email manquant');
-            return res.status(400).json({ error: 'Email requis' });
+    let client;
+    let retries = 3;
+    
+    while (retries > 0) {
+        try {
+            const { email, date, source } = req.body;
+            console.log('📝 Variables extraites:', { email, date, source });
+            
+            if (!email) {
+                console.log('❌ Email manquant');
+                return res.status(400).json({ error: 'Email requis' });
+            }
+            
+            console.log(`🔄 Tentative ${4-retries}/3 - Connexion à la DB...`);
+            
+            // Utiliser une nouvelle connexion à chaque fois
+            client = await pool.connect();
+            console.log('✅ Client connecté');
+            
+            // Test rapide
+            await client.query('SELECT 1');
+            console.log('✅ Test connexion OK');
+            
+            console.log('💾 Exécution INSERT...');
+            const result = await client.query(
+                'INSERT INTO users (email, created_at, source) VALUES ($1, $2, $3) ON CONFLICT (email) DO NOTHING RETURNING id',
+                [email, date || new Date().toISOString(), source || 'gitanalyse']
+            );
+            
+            console.log('📊 Résultat:', result.rows);
+            
+            // Libérer la connexion immédiatement
+            client.release();
+            client = null;
+            
+            if (result.rows.length > 0) {
+                console.log('✅ Nouvel email sauvegardé:', email);
+                return res.json({ success: true, message: 'Email sauvegardé', id: result.rows[0].id });
+            } else {
+                console.log('⚠️ Email déjà existant:', email);
+                return res.json({ success: true, message: 'Email déjà enregistré', already_exists: true });
+            }
+            
+        } catch (error) {
+            console.error(`💥 Erreur tentative ${4-retries}:`, error.message);
+            
+            // Libérer la connexion en cas d'erreur
+            if (client) {
+                try {
+                    client.release();
+                    client = null;
+                } catch (releaseError) {
+                    console.error('❌ Erreur release:', releaseError.message);
+                }
+            }
+            
+            retries--;
+            
+            if (retries > 0) {
+                console.log(`🔄 Retry dans 1 seconde... (${retries} tentatives restantes)`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            } else {
+                console.error('💥 === TOUTES LES TENTATIVES ÉCHOUÉES ===');
+                console.error('❌ Error final:', error.message);
+                console.error('❌ Error code:', error.code);
+                console.error('❌ Error stack:', error.stack);
+                
+                return res.status(500).json({ 
+                    error: 'Erreur base de données après plusieurs tentatives', 
+                    details: error.message 
+                });
+            }
         }
-        
-        console.log('🔌 Test de connexion au pool...');
-        
-        // Test simple de connexion
-        await pool.query('SELECT NOW()');
-        console.log('✅ Connexion pool OK');
-        
-        console.log('💾 Exécution de la requête INSERT...');
-        const result = await pool.query(
-            'INSERT INTO users (email, created_at, source) VALUES ($1, $2, $3) ON CONFLICT (email) DO NOTHING RETURNING id',
-            [email, date || new Date().toISOString(), source || 'gitanalyse']
-        );
-        
-        console.log('📊 Résultat requête:', result.rows);
-        
-        if (result.rows.length > 0) {
-            console.log('✅ Nouvel email sauvegardé:', email, 'ID:', result.rows[0].id);
-            res.json({ success: true, message: 'Email sauvegardé', id: result.rows[0].id });
-        } else {
-            console.log('⚠️ Email déjà existant:', email);
-            res.json({ success: true, message: 'Email déjà enregistré', already_exists: true });
-        }
-        
-        console.log('🎉 === FIN WEBHOOK SUCCESS ===');
-        
-    } catch (error) {
-        console.error('💥 === ERREUR WEBHOOK ===');
-        console.error('❌ Error message:', error.message);
-        console.error('❌ Error code:', error.code);
-        console.error('❌ Error stack:', error.stack);
-        console.error('❌ Error detail:', error.detail);
-        console.error('💥 === FIN ERREUR ===');
-        
-        res.status(500).json({ 
-            error: 'Erreur serveur', 
-            details: error.message,
-            code: error.code 
-        });
     }
 });
 
