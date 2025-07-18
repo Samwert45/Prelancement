@@ -3,6 +3,7 @@ const { Client } = require('pg');
 const app = express();
 
 app.use(express.json());
+app.use(express.static('.')); // ← CETTE LIGNE ÉTAIT MANQUANTE !
 
 // Route email avec debug complet
 app.post('/webhook.php', async (req, res) => {
