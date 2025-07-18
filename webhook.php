@@ -13,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $pdo = new PDO($dsn, $username, $password);
        
-        $stmt = $pdo->prepare("INSERT INTO emails (email, created_at, source) VALUES (?, ?, ?)");
+        $stmt = $pdo->prepare("INSERT INTO users (email, created_at, source) VALUES (?, ?, ?)");
         $stmt->execute([
             $data['email'],
             $data['date'],
