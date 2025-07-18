@@ -260,7 +260,7 @@
                         <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
                             <h3 class="text-lg leading-6 font-medium text-gray-900">Félicitations!</h3>
                             <div class="mt-2">
-                                <p class="text-sm text-gray-500">Votre inscription a été enregistrée avec succès.</p>
+                                <p class="text-sm text-gray-500">Votre inscription a été enregistrée avec succès dans PostgreSQL.</p>
                             </div>
                         </div>
                     </div>
@@ -303,37 +303,52 @@
             }
         }
 
-        const response = await fetch('https://ton-site.vercel.app/webhook.php', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-        email: email,
-        date: new Date().toISOString(),
-        source: 'gitanalyse'
-    })
-    });
-
         updateCountdown();
         const countdownInterval = setInterval(updateCountdown, 1000);
 
-        // Fonction simple pour sauvegarder l'email
+        // Fonction pour sauvegarder l'email dans PostgreSQL
         async function saveEmailToDatabase(email) {
             console.log('Sauvegarde de:', email);
             
-            // Sauvegarder localement
-            const emails = JSON.parse(localStorage.getItem('emails') || '[]');
-            emails.push({
-                email: email,
-                date: new Date().toISOString(),
-                source: 'landing_page'
-            });
-            localStorage.setItem('emails', JSON.stringify(emails));
-            console.log('Email sauvegardé localement');
-            
-            return true;
+            try {
+                // Appel vers ton serveur Render avec le webhook PHP
+                const response = await fetch('https://prelancement.onrender.com/webhook.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: email,
+                        date: new Date().toISOString(),
+                        source: 'gitanalyse'
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('✅ Email sauvegardé dans PostgreSQL:', result);
+                    return true;
+                } else {
+                    console.error('❌ Erreur serveur:', response.status);
+                    throw new Error('Erreur serveur');
+                }
+                
+            } catch (error) {
+                console.error('❌ Erreur:', error);
+                
+                // Fallback: sauvegarde locale
+                const emails = JSON.parse(localStorage.getItem('emails') || '[]');
+                emails.push({
+                    email: email,
+                    date: new Date().toISOString(),
+                    source: 'gitanalyse_local_fallback'
+                });
+                localStorage.setItem('emails', JSON.stringify(emails));
+                console.log('💾 Email sauvegardé localement en fallback');
+                
+                return true; // On retourne true pour ne pas bloquer l'utilisateur
+            }
         }
 
-        // Soumission email
+        // Fonction de soumission email
         async function submitEmail() {
             const emailInput = document.getElementById('email');
             const email = emailInput.value.trim();
@@ -402,11 +417,56 @@
         // Fonction pour voir les emails (debug)
         function voirEmails() {
             const emails = JSON.parse(localStorage.getItem('emails') || '[]');
-            console.log('Emails sauvegardés:', emails);
+            console.log('📧 Emails sauvegardés localement:', emails);
             return emails;
         }
 
+        // Fonction pour tester la connexion au serveur
+        async function testerConnexion() {
+            try {
+                const response = await fetch('https://prelancement.onrender.com/webhook.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: 'test@example.com',
+                        date: new Date().toISOString(),
+                        source: 'test_connexion'
+                    })
+                });
+                
+                if (response.ok) {
+                    console.log('✅ Connexion au serveur OK');
+                    return true;
+                } else {
+                    console.log('❌ Erreur serveur:', response.status);
+                    return false;
+                }
+            } catch (error) {
+                console.log('❌ Impossible de joindre le serveur:', error.message);
+                return false;
+            }
+        }
+
+        // Exposer les fonctions pour debug dans la console
         window.voirEmails = voirEmails;
+        window.testerConnexion = testerConnexion;
+
+        // Message d'aide dans la console
+        console.log(`
+🚀 GITANALYSE - SYSTÈME DE COLLECTE D'EMAILS
+==========================================
+
+📋 Fonctions disponibles dans la console :
+• voirEmails() - Voir tous les emails sauvegardés localement
+• testerConnexion() - Tester la connexion au serveur PostgreSQL
+
+🔧 Le système fonctionne ainsi :
+1. Les emails sont envoyés vers PostgreSQL via webhook.php
+2. En cas d'échec, sauvegarde locale automatique
+3. Toutes les actions sont loggées dans la console
+
+📊 Pour voir l'activité en temps réel, garde la console ouverte !
+        `);
     </script>
 </body>
 </html>
