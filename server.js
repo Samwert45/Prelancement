@@ -18,7 +18,7 @@ const pool = new Pool({
 });
 
 // Route webhook avec debug complet
-app.post('/webhook.php', async (req, res) => {
+app.post('/webhookphp', async (req, res) => {
     console.log('🚀 === DÉBUT WEBHOOK ===');
     console.log('📧 Body reçu:', JSON.stringify(req.body, null, 2));
     console.log('🔗 Headers:', req.headers);
