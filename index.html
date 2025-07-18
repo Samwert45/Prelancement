@@ -275,6 +275,11 @@
     </div>
 
     <script>
+        fetch('https://prelancement.onrender.com/webhook.php', {
+    method: 'POST', 
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({email: 'test@test.com', date: new Date().toISOString(), source: 'test'})
+    }).then(r => r.text()).then(console.log)
         // Date cible : 30 juillet 2025 à 23:59:59
         const targetDate = new Date('2025-07-30T23:59:59').getTime();
 
